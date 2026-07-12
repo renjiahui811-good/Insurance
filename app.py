@@ -98,9 +98,10 @@ def render_ai_section(key: str, region: str) -> None:
     if not ai.is_configured():
         with st.expander("🤖 Want an AI summary of the whole policy? (setup)"):
             st.markdown(
-                "AI analysis is not configured yet. Add an `anthropic_api_key` to "
-                "Streamlit **Secrets** to let Claude read the full policy and summarise "
-                "coverage, exclusions and gaps. See `AI_SETUP.md` in the repo."
+                "AI analysis is not configured yet. Add a **free Google Gemini** key "
+                "(`gemini_api_key`) — or an `anthropic_api_key` for Claude — to Streamlit "
+                "**Secrets** to let AI read the full policy and summarise coverage, "
+                "exclusions and gaps. See `AI_SETUP.md` in the repo."
             )
         return
 

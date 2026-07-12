@@ -1,13 +1,16 @@
-"""AI analysis of policy documents via the Claude API.
+"""AI analysis of policy documents.
 
-Takes the raw text extracted from a policy (one or several documents) and asks
-Claude to read the whole thing and return:
+Supports multiple providers, chosen by which key is present in Streamlit secrets:
+  - Google Gemini   (gemini_api_key)     — has a free tier; preferred by default
+  - Anthropic Claude (anthropic_api_key)
+
+Takes the raw text extracted from a policy and returns:
   - a plain-language summary (what it covers, exclusions, waiting periods…)
   - extracted key field/value pairs
   - coverage highlights and gaps to review
 
-Degrades gracefully: if the anthropic SDK or the API key is missing, the AI
-button simply hides and the regex parsing keeps working.
+Degrades gracefully: if no provider SDK or key is available, the AI button hides
+and the regex parsing keeps working.
 """
 
 from __future__ import annotations
@@ -24,7 +27,16 @@ try:
 except Exception:  # pragma: no cover
     _HAS_ANTHROPIC = False
 
-DEFAULT_MODEL = "claude-opus-4-8"
+try:
+    from google import genai
+    from google.genai import types as genai_types
+
+    _HAS_GEMINI = True
+except Exception:  # pragma: no cover
+    _HAS_GEMINI = False
+
+DEFAULT_CLAUDE_MODEL = "claude-opus-4-8"
+DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
 MAX_INPUT_CHARS = 100_000  # policy text is small; guard against runaway cost
 
 _RESULT_SCHEMA = {
@@ -53,25 +65,46 @@ _RESULT_SCHEMA = {
     "additionalProperties": False,
 }
 
+_JSON_SHAPE_HINT = (
+    "Return a JSON object with exactly these keys: "
+    '"summary" (a Markdown string), '
+    '"fields" (an array of {"label","value"} objects), '
+    '"coverage_highlights" (an array of strings), and '
+    '"exclusions_or_gaps" (an array of strings).'
+)
+
+
+# =============================================================================
+# Provider selection
+# =============================================================================
+def _secret(name: str) -> str:
+    try:
+        return st.secrets.get(name) or ""
+    except Exception:
+        return ""
+
+
+def provider() -> str | None:
+    """Return the active provider name, or None if unconfigured."""
+    forced = _secret("ai_provider").lower()
+    if forced == "gemini" and _HAS_GEMINI and _secret("gemini_api_key"):
+        return "gemini"
+    if forced == "claude" and _HAS_ANTHROPIC and _secret("anthropic_api_key"):
+        return "claude"
+    # Auto: prefer whichever key is present (Gemini first — it has a free tier).
+    if _HAS_GEMINI and _secret("gemini_api_key"):
+        return "gemini"
+    if _HAS_ANTHROPIC and _secret("anthropic_api_key"):
+        return "claude"
+    return None
+
 
 def is_available() -> bool:
-    return _HAS_ANTHROPIC
+    return _HAS_ANTHROPIC or _HAS_GEMINI
 
 
 def is_configured() -> bool:
-    if not _HAS_ANTHROPIC:
-        return False
-    try:
-        return bool(st.secrets.get("anthropic_api_key"))
-    except Exception:
-        return False
-
-
-def _model() -> str:
-    try:
-        return st.secrets.get("anthropic_model") or DEFAULT_MODEL
-    except Exception:
-        return DEFAULT_MODEL
+    return provider() is not None
 
 
 def _system_prompt(region: str) -> str:
@@ -100,33 +133,56 @@ def _system_prompt(region: str) -> str:
     )
 
 
+# =============================================================================
+# Public entry point
+# =============================================================================
 def analyze(text: str, region: str) -> dict[str, Any]:
-    """Analyze policy text with Claude. Returns the parsed result dict.
-
-    Raises the underlying anthropic error on failure so the caller can surface it.
-    """
-    api_key = st.secrets["anthropic_api_key"]
-    client = anthropic.Anthropic(api_key=api_key)
-
+    """Analyze policy text with the configured provider. Returns the result dict."""
     truncated = text[:MAX_INPUT_CHARS]
-    note = ""
-    if len(text) > MAX_INPUT_CHARS:
-        note = f"(input truncated to {MAX_INPUT_CHARS} characters)"
+    note = f" (input truncated to {MAX_INPUT_CHARS} characters)" if len(text) > MAX_INPUT_CHARS else ""
+    system = _system_prompt(region)
+    user = f"Analyze this policy document text{note}:\n\n{truncated}"
 
+    active = provider()
+    if active == "gemini":
+        return _analyze_gemini(system, user)
+    return _analyze_claude(system, user)
+
+
+# =============================================================================
+# Gemini (free tier)
+# =============================================================================
+def _analyze_gemini(system: str, user: str) -> dict[str, Any]:
+    model = _secret("gemini_model") or DEFAULT_GEMINI_MODEL
+    client = genai.Client(api_key=st.secrets["gemini_api_key"])
+    response = client.models.generate_content(
+        model=model,
+        contents=f"{user}\n\n{_JSON_SHAPE_HINT}",
+        config=genai_types.GenerateContentConfig(
+            system_instruction=system,
+            response_mime_type="application/json",
+            max_output_tokens=4096,
+        ),
+    )
+    result = json.loads(response.text)
+    result["_model"] = model
+    return result
+
+
+# =============================================================================
+# Claude
+# =============================================================================
+def _analyze_claude(system: str, user: str) -> dict[str, Any]:
+    model = _secret("anthropic_model") or DEFAULT_CLAUDE_MODEL
+    client = anthropic.Anthropic(api_key=st.secrets["anthropic_api_key"])
     response = client.messages.create(
-        model=_model(),
+        model=model,
         max_tokens=8000,
         thinking={"type": "adaptive"},
-        system=_system_prompt(region),
+        system=system,
         output_config={"format": {"type": "json_schema", "schema": _RESULT_SCHEMA}},
-        messages=[
-            {
-                "role": "user",
-                "content": f"Analyze this policy document text {note}:\n\n{truncated}",
-            }
-        ],
+        messages=[{"role": "user", "content": user}],
     )
-
     payload = next((b.text for b in response.content if b.type == "text"), "")
     result = json.loads(payload)
     result["_model"] = response.model

@@ -1,41 +1,66 @@
-# AI Analysis Setup (Claude)
+# AI Analysis Setup
 
-Let Claude read a full policy document and summarise it in plain language —
-what it covers, exclusions, waiting periods, and gaps to review. This augments
-the regex parsing, which only pulls out fields it recognises.
+Let an AI read a full policy document and summarise it in plain language — what
+it covers, exclusions, waiting periods, and gaps to review. This augments the
+regex parsing, which only pulls out fields it recognises.
 
 This is optional. Without it, upload + auto-parse + the manual form all keep
-working.
+working. Two providers are supported — pick one:
 
-## 1. Get an Anthropic API key
+| Provider | Cost | Best for |
+|----------|------|----------|
+| **Google Gemini** | **Free tier** (no card needed) | Recommended — free for personal use |
+| Anthropic Claude | Pay-as-you-go (API credits) | Highest quality |
 
-1. Go to <https://console.anthropic.com/> and sign in (or sign up).
-2. Open **Settings → API Keys → Create Key**.
-3. Copy the key (starts with `sk-ant-...`). Add billing credit if prompted —
-   analysis costs a few cents per policy.
+The app auto-detects which one you configured. If you set both, it prefers
+Gemini (or set `ai_provider = "claude"` to force Claude).
 
-## 2. Add it to Streamlit Secrets
+---
 
-Your app → **Manage app** → **⋮** → **Settings** → **Secrets**. Add one line
-alongside your existing secrets (keep the Google Drive block as-is):
+## Option A — Google Gemini (free)
 
-```toml
-anthropic_api_key = "sk-ant-your-key-here"
+1. Go to <https://aistudio.google.com/app/apikey> and sign in with a Google account.
+2. Click **Create API key** → copy it.
+3. Your app → **Manage app → ⋮ → Settings → Secrets**, and add (keep your
+   existing Google Drive secrets as-is):
 
-# Optional — defaults to claude-opus-4-8 (most capable). Uncomment to change:
-# anthropic_model = "claude-sonnet-5"
-```
+   ```toml
+   gemini_api_key = "your-gemini-key"
 
-Save. The app reboots automatically.
+   # Optional — defaults to gemini-2.0-flash (free tier). Uncomment to change:
+   # gemini_model = "gemini-2.5-flash"
+   ```
+4. Save. The app reboots automatically.
 
-## 3. Use it
+> The free tier has daily rate limits, which are plenty for personal use. No
+> credit card required.
+
+---
+
+## Option B — Anthropic Claude (paid, highest quality)
+
+1. Go to <https://console.anthropic.com/> → **Settings → API Keys → Create Key**.
+2. Add a little credit (analysis costs a few cents per policy; less with a
+   cheaper model).
+3. In Streamlit Secrets:
+
+   ```toml
+   anthropic_api_key = "sk-ant-your-key"
+
+   # Optional — defaults to claude-opus-4-8. Cheaper option:
+   # anthropic_model = "claude-haiku-4-5"
+   ```
+
+---
+
+## Use it
 
 On the policy pages, upload/pick a document so its text is extracted, then a
-**C. AI Analysis (Claude)** section appears. Click **🤖 Analyze full policy with
-AI**. The summary also pre-fills the Notes field, so it's saved with the record.
+**C. AI Analysis** section appears. Click **🤖 Analyze full policy with AI**. The
+summary also pre-fills the Notes field, so it's saved with the record.
 
-> The API key is a secret — it lives only in Streamlit's encrypted Secrets store.
-> Never commit it to the repository.
+> API keys are secrets — they live only in Streamlit's encrypted Secrets store.
+> Never commit them to the repository.
 >
 > AI output can be wrong or incomplete. Always verify against the official
 > policy document before relying on it.
