@@ -11,14 +11,38 @@ Critical Illness, Life, Endowment, ILP, etc.).
 3. Support **AIA advisory** work — insurance knowledge, AIA product summaries,
    and (future) client profiles and plan management.
 
+## Sections
+
+The portal has four sections in the sidebar:
+
+| Section | Language | Notes |
+|---------|----------|-------|
+| **My Policies (Singapore)** | English | Integrated Shield Plan, Medisave Pay, Co-insurance, Deductible, TPD, CI… |
+| **Parents' Policies (China)** | Chinese fields | 百万医疗险、免赔额、社保内/外报销比例、保证续保年限、自动续保扣款账户… |
+| **AIA Products** | English | Advisory product summaries |
+| **Client Profiles** | English | Advisory client records (PDPA — git-ignored) |
+
+## Data entry (two ways)
+
+On both policy pages you can add a record two ways:
+
+- **A. Upload & Auto-Parse** — upload a policy **PDF** (embedded text) or an
+  **image** (PNG/JPG, read via OCR). The app extracts the text and best-effort
+  parses key fields, which pre-fill the form. Singapore uses English patterns;
+  China uses Chinese patterns (`eng+chi_sim` OCR).
+- **B. Policy Form** — review/adjust anything parsing missed, then save. The
+  record is written as a Markdown file (English for SG, Chinese fields for CN).
+
 ## Structure
 
 ```
 Insurance/
-├── app.py                  # Streamlit portal (English UI)
+├── app.py                  # Streamlit portal (4 sections, upload + forms)
+├── parsers.py              # PDF/image text extraction + field parsing
+├── records.py              # Markdown builders + save/list
 ├── requirements.txt
-├── my_policies/            # My own policies (one .md per policy)
-├── parents_policies/       # Parents' policies
+├── my_policies/            # Singapore policies (English, one .md per policy)
+├── parents_policies/       # China policies (Chinese fields)
 ├── aia_products/           # AIA product summaries (advisory)
 ├── clients/                # Client profiles (PDPA — git-ignored)
 ├── knowledge/              # Glossary & insurance notes
@@ -44,10 +68,16 @@ To add a record, copy the template to a new file and fill it in.
 
 ```bash
 pip install -r requirements.txt
+
+# For image OCR (optional, needed only to read scanned/photo policies):
+sudo apt-get install -y tesseract-ocr tesseract-ocr-chi-sim
+
 streamlit run app.py
 ```
 
-The app opens in your browser. Use the sidebar to pick a section and a record.
+The app opens in your browser. Use the sidebar to pick a section. PDF parsing
+works with `pypdf` alone; image OCR additionally needs the `tesseract` binary.
+The app degrades gracefully and tells you which parsers are available.
 
 ## Privacy (PDPA)
 
