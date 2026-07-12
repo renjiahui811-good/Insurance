@@ -49,25 +49,37 @@ def render_record_browser(folder: Path, empty_hint: str) -> None:
         st.markdown(choice.read_text(encoding="utf-8"))
 
 
-def _process_bytes(file_bytes: bytes, filename: str, parse_fn, key: str) -> dict:
-    """Shared pipeline: bytes → extract text → parse → stash for the form."""
-    with st.spinner("Extracting text…"):
-        text, note = parsers.extract_text(file_bytes, filename)
+def _process_documents(docs: list[tuple[str, bytes]], parse_fn, key: str) -> dict:
+    """Extract text from one or more files, merge, parse into one record.
 
-    if note:
-        st.warning(note)
-    if not text:
+    docs: list of (filename, file_bytes). Text from every file is combined so a
+    single policy split across several documents is summarised into one record.
+    """
+    sections: list[str] = []
+    with st.spinner("Extracting text…"):
+        for name, data in docs:
+            text, note = parsers.extract_text(data, name)
+            if note:
+                st.warning(f"{name}: {note}")
+            if text:
+                sections.append(f"===== {name} =====\n{text}")
+
+    if not sections:
         return {}
 
-    parsed = parse_fn(text)
+    combined = "\n\n".join(sections)
+    parsed = parse_fn(combined)
     found = {k: v for k, v in parsed.items() if v}
-    st.success(f"Extracted {len(text)} characters · auto-filled {len(found)} field(s).")
+    st.success(
+        f"Processed {len(sections)} file(s) · {len(combined)} characters · "
+        f"merged {len(found)} field(s) into one record."
+    )
 
-    with st.expander("View extracted raw text"):
-        st.text(text[:5000] + ("…" if len(text) > 5000 else ""))
+    with st.expander(f"View extracted raw text ({len(sections)} file(s))"):
+        st.text(combined[:8000] + ("…" if len(combined) > 8000 else ""))
 
     if found:
-        st.write("**Auto-detected fields** (review & adjust below):")
+        st.write("**Auto-detected fields** (merged from all files — review & adjust below):")
         st.json(found)
 
     st.session_state[f"parsed_{key}"] = parsed
@@ -103,13 +115,14 @@ def upload_and_parse(parse_fn, key: str) -> dict:
         return _from_google_drive(parse_fn, key)
 
     uploaded = st.file_uploader(
-        "Upload Policy PDF / Image",
+        "Upload Policy PDF / Image — you can select multiple files for one policy",
         type=["pdf", "png", "jpg", "jpeg", "webp", "tiff", "bmp", "txt", "md"],
+        accept_multiple_files=True,
         key=f"upload_{key}",
     )
-    if uploaded is None:
+    if not uploaded:
         return {}
-    return _process_bytes(uploaded.getvalue(), uploaded.name, parse_fn, key)
+    return _process_documents([(f.name, f.getvalue()) for f in uploaded], parse_fn, key)
 
 
 def _from_google_drive(parse_fn, key: str) -> dict:
@@ -131,23 +144,29 @@ def _from_google_drive(parse_fn, key: str) -> dict:
         )
         return {}
 
-    chosen = st.selectbox(
-        "Select a file from Google Drive",
+    chosen = st.multiselect(
+        "Select one or more files from Google Drive (all files for the same policy)",
         files,
         format_func=lambda f: f"{f['name']}  ·  {f.get('modifiedTime', '')[:10]}",
         key=f"gd_select_{key}",
     )
-    if not chosen or not st.button("📥 Load & parse this file", key=f"gd_load_{key}"):
+    if not chosen:
+        st.caption("Tip: pick every document that belongs to the same policy — they'll be merged into one record.")
+        return {}
+    if not st.button(f"📥 Load & parse {len(chosen)} file(s)", key=f"gd_load_{key}"):
         return {}
 
-    with st.spinner("Downloading from Google Drive…"):
-        try:
-            file_bytes = gdrive.download_file(chosen["id"])
-        except Exception as exc:
-            st.error(f"Download failed: {exc}")
-            return {}
+    docs: list[tuple[str, bytes]] = []
+    with st.spinner(f"Downloading {len(chosen)} file(s) from Google Drive…"):
+        for f in chosen:
+            try:
+                docs.append((f["name"], gdrive.download_file(f["id"])))
+            except Exception as exc:
+                st.error(f"Download failed for {f['name']}: {exc}")
 
-    return _process_bytes(file_bytes, chosen["name"], parse_fn, key)
+    if not docs:
+        return {}
+    return _process_documents(docs, parse_fn, key)
 
 
 def _pf(key: str, field: str, default: str = "") -> str:
