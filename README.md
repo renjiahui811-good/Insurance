@@ -79,6 +79,20 @@ The app opens in your browser. Use the sidebar to pick a section. PDF parsing
 works with `pypdf` alone; image OCR additionally needs the `tesseract` binary.
 The app degrades gracefully and tells you which parsers are available.
 
+## Deploy online (Streamlit Community Cloud)
+
+The repo is ready to deploy at [share.streamlit.io](https://share.streamlit.io):
+
+1. Sign in with GitHub and pick this repo + branch, main file `app.py`.
+2. `requirements.txt` (Python deps) and `packages.txt` (`tesseract-ocr`,
+   `tesseract-ocr-chi-sim` for OCR) are installed automatically.
+3. Set the app to **private** so only you can view it.
+
+> ⚠️ **Persistence note:** the Community Cloud filesystem is ephemeral, so
+> policies saved through the deployed app are **temporary** and lost on
+> restart/redeploy. For permanent records, run the app locally (data stays on
+> your machine) or commit records to the repo.
+
 ## Privacy (PDPA)
 
 The `clients/` folder holds personal data and is git-ignored (except the
