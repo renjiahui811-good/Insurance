@@ -2,3 +2,5 @@ streamlit>=1.30
 pypdf>=4.0
 Pillow>=10.0
 pytesseract>=0.3
+google-api-python-client>=2.0
+google-auth>=2.0

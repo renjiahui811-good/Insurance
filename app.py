@@ -17,6 +17,7 @@ from pathlib import Path
 
 import streamlit as st
 
+import gdrive
 import parsers
 import records as rec
 
@@ -48,24 +49,10 @@ def render_record_browser(folder: Path, empty_hint: str) -> None:
         st.markdown(choice.read_text(encoding="utf-8"))
 
 
-def upload_and_parse(parse_fn, key: str) -> dict:
-    """File uploader → extract text → parse fields. Returns parsed dict (or {})."""
-    caps = []
-    caps.append("PDF ✅" if parsers.CAPABILITIES["pdf"] else "PDF ❌")
-    caps.append("Image OCR ✅" if parsers.CAPABILITIES["ocr"] else "Image OCR ❌")
-    st.caption("Parser capabilities: " + " · ".join(caps))
-
-    uploaded = st.file_uploader(
-        "Upload Policy PDF / Image",
-        type=["pdf", "png", "jpg", "jpeg", "webp", "tiff", "bmp", "txt", "md"],
-        key=f"upload_{key}",
-    )
-    if uploaded is None:
-        return {}
-
-    file_bytes = uploaded.getvalue()
+def _process_bytes(file_bytes: bytes, filename: str, parse_fn, key: str) -> dict:
+    """Shared pipeline: bytes → extract text → parse → stash for the form."""
     with st.spinner("Extracting text…"):
-        text, note = parsers.extract_text(file_bytes, uploaded.name)
+        text, note = parsers.extract_text(file_bytes, filename)
 
     if note:
         st.warning(note)
@@ -83,9 +70,84 @@ def upload_and_parse(parse_fn, key: str) -> dict:
         st.write("**Auto-detected fields** (review & adjust below):")
         st.json(found)
 
-    # Stash into session so the form below can pre-fill.
     st.session_state[f"parsed_{key}"] = parsed
     return parsed
+
+
+def upload_and_parse(parse_fn, key: str) -> dict:
+    """Choose a source (device or Google Drive) → extract → parse."""
+    caps = []
+    caps.append("PDF ✅" if parsers.CAPABILITIES["pdf"] else "PDF ❌")
+    caps.append("Image OCR ✅" if parsers.CAPABILITIES["ocr"] else "Image OCR ❌")
+    caps.append("Google Drive ✅" if gdrive.is_configured() else "Google Drive ❌")
+    st.caption("Parser capabilities: " + " · ".join(caps))
+
+    sources = ["💻 Upload from device"]
+    if gdrive.is_configured():
+        sources.append("🗂️ Pick from Google Drive")
+
+    if len(sources) > 1:
+        source = st.radio("Source", sources, horizontal=True, key=f"src_{key}")
+    else:
+        source = sources[0]
+        if gdrive.is_available():
+            with st.expander("🗂️ Want to pick files from Google Drive? (setup)"):
+                st.markdown(
+                    "Google Drive is not configured yet. Add a service account to "
+                    "Streamlit **Secrets** (`gcp_service_account` + `gdrive_folder_id`) "
+                    "and share an `Insurance Inbox` folder with it. "
+                    "See `GOOGLE_DRIVE_SETUP.md` in the repo for step-by-step instructions."
+                )
+
+    if source.endswith("Google Drive"):
+        return _from_google_drive(parse_fn, key)
+
+    uploaded = st.file_uploader(
+        "Upload Policy PDF / Image",
+        type=["pdf", "png", "jpg", "jpeg", "webp", "tiff", "bmp", "txt", "md"],
+        key=f"upload_{key}",
+    )
+    if uploaded is None:
+        return {}
+    return _process_bytes(uploaded.getvalue(), uploaded.name, parse_fn, key)
+
+
+def _from_google_drive(parse_fn, key: str) -> dict:
+    """List files in the shared Drive folder, pick one, download & parse."""
+    try:
+        files = gdrive.list_files()
+    except Exception as exc:
+        st.error(f"Could not list Google Drive files: {exc}")
+        st.caption(
+            "Check that the folder is shared with the service account "
+            f"(`{gdrive.service_account_email()}`) and the folder ID is correct."
+        )
+        return {}
+
+    if not files:
+        st.info(
+            "No files found in the shared Drive folder. Drop a policy PDF/image into "
+            f"the folder shared with `{gdrive.service_account_email()}` and refresh."
+        )
+        return {}
+
+    chosen = st.selectbox(
+        "Select a file from Google Drive",
+        files,
+        format_func=lambda f: f"{f['name']}  ·  {f.get('modifiedTime', '')[:10]}",
+        key=f"gd_select_{key}",
+    )
+    if not chosen or not st.button("📥 Load & parse this file", key=f"gd_load_{key}"):
+        return {}
+
+    with st.spinner("Downloading from Google Drive…"):
+        try:
+            file_bytes = gdrive.download_file(chosen["id"])
+        except Exception as exc:
+            st.error(f"Download failed: {exc}")
+            return {}
+
+    return _process_bytes(file_bytes, chosen["name"], parse_fn, key)
 
 
 def _pf(key: str, field: str, default: str = "") -> str:
