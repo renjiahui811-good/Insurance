@@ -35,24 +35,34 @@ except Exception:  # pragma: no cover
 # =============================================================================
 # Stage 1 — text extraction
 # =============================================================================
-def extract_text(file_bytes: bytes, filename: str) -> tuple[str, str]:
-    """Return (text, note). note explains any degradation to the user."""
-    name = (filename or "").lower()
+def extract_text(file_bytes: bytes, filename: str, mime_type: str = "") -> tuple[str, str]:
+    """Return (text, note). note explains any degradation to the user.
 
-    if name.endswith(".pdf"):
+    Detects the file kind from the filename extension OR the MIME type — Google
+    Drive files often have no extension in their title, so the MIME type is the
+    reliable signal there.
+    """
+    name = (filename or "").lower()
+    mime = (mime_type or "").lower()
+
+    is_pdf = name.endswith(".pdf") or mime == "application/pdf"
+    is_image = name.endswith((".png", ".jpg", ".jpeg", ".webp", ".tiff", ".bmp")) or mime.startswith("image/")
+    is_text = name.endswith((".txt", ".md")) or mime.startswith("text/")
+
+    if is_pdf:
         if not _HAS_PDF:
             return "", "PDF support not installed (pypdf)."
         return _extract_pdf(file_bytes)
 
-    if name.endswith((".png", ".jpg", ".jpeg", ".webp", ".tiff", ".bmp")):
+    if is_image:
         if not _HAS_OCR:
             return "", "Image OCR not available (tesseract not installed)."
         return _extract_image(file_bytes)
 
-    if name.endswith((".txt", ".md")):
+    if is_text:
         return file_bytes.decode("utf-8", errors="ignore"), ""
 
-    return "", f"Unsupported file type: {filename}"
+    return "", f"Unsupported file type: {filename} ({mime_type or 'unknown'})"
 
 
 def _extract_pdf(file_bytes: bytes) -> tuple[str, str]:

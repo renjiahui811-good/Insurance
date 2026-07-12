@@ -73,6 +73,31 @@ _JSON_SHAPE_HINT = (
     '"exclusions_or_gaps" (an array of strings).'
 )
 
+# Columns to extract, matching the user's tracking spreadsheet.
+SG_TEMPLATE_COLUMNS = [
+    "Policy Name", "Provider", "Policy Number", "Product Type", "Covers",
+    "Coverage Details", "Coverage Amount", "Annual Premium", "Premium End Date",
+    "Payment Method", "Premium Due Date",
+]
+CN_TEMPLATE_COLUMNS = [
+    "产品名称", "保险公司", "保单号", "产品类型", "保障范围", "保额", "免赔额",
+    "社保内报销比例", "社保外报销比例", "保证续保年限", "保费", "缴费方式", "下次缴费日",
+]
+
+
+def template_columns(region: str) -> list[str]:
+    return CN_TEMPLATE_COLUMNS if region == "cn" else SG_TEMPLATE_COLUMNS
+
+
+def _template_instruction(region: str) -> str:
+    cols = " | ".join(template_columns(region))
+    return (
+        "In `fields`, the FIRST entries MUST be exactly one per column below, using "
+        f"the column name as the `label` (verbatim), in this order: {cols}. "
+        "Use an empty string for any value you cannot find in the document — never "
+        "guess. You may append additional useful fields after these."
+    )
+
 
 # =============================================================================
 # Provider selection
@@ -140,7 +165,7 @@ def analyze(text: str, region: str) -> dict[str, Any]:
     """Analyze policy text with the configured provider. Returns the result dict."""
     truncated = text[:MAX_INPUT_CHARS]
     note = f" (input truncated to {MAX_INPUT_CHARS} characters)" if len(text) > MAX_INPUT_CHARS else ""
-    system = _system_prompt(region)
+    system = _system_prompt(region) + " " + _template_instruction(region)
     user = f"Analyze this policy document text{note}:\n\n{truncated}"
 
     active = provider()

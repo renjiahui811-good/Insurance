@@ -50,16 +50,17 @@ def render_record_browser(folder: Path, empty_hint: str) -> None:
         st.markdown(choice.read_text(encoding="utf-8"))
 
 
-def _process_documents(docs: list[tuple[str, bytes]], parse_fn, key: str) -> dict:
+def _process_documents(docs: list[tuple[str, bytes, str]], parse_fn, key: str) -> dict:
     """Extract text from one or more files, merge, parse into one record.
 
-    docs: list of (filename, file_bytes). Text from every file is combined so a
-    single policy split across several documents is summarised into one record.
+    docs: list of (filename, file_bytes, mime_type). Text from every file is
+    combined so a single policy split across several documents is summarised
+    into one record.
     """
     sections: list[str] = []
     with st.spinner("Extracting text…"):
-        for name, data in docs:
-            text, note = parsers.extract_text(data, name)
+        for name, data, mime in docs:
+            text, note = parsers.extract_text(data, name, mime)
             if note:
                 st.warning(f"{name}: {note}")
             if text:
@@ -129,11 +130,26 @@ def render_ai_section(key: str, region: str) -> None:
         for item in result.get("exclusions_or_gaps", []):
             st.markdown(f"- {item}")
 
-    fields = result.get("fields", [])
-    if fields:
-        with st.expander("Extracted fields"):
-            st.table({f["label"]: f["value"] for f in fields})
-    st.caption(f"Analyzed by {result.get('_model', 'Claude')}. Review before relying on it.")
+    # Template row — matches the user's tracking spreadsheet, ready to paste.
+    cols = ai.template_columns(region)
+    values = {f.get("label", ""): f.get("value", "") for f in result.get("fields", [])}
+    row = [values.get(c, "") for c in cols]
+    st.markdown("**📋 Template row** — matches your tracking sheet columns:")
+    st.dataframe({c: [v] for c, v in zip(cols, row)}, hide_index=True)
+    st.caption("Copy the tab-separated row below and paste it as a new row in Google Sheets:")
+    st.text_area(
+        "Tab-separated row",
+        "\t".join(row),
+        height=70,
+        key=f"tsv_{key}",
+        label_visibility="collapsed",
+    )
+
+    extras = [f for f in result.get("fields", []) if f.get("label") not in cols]
+    if extras:
+        with st.expander("Other extracted fields"):
+            st.table({f["label"]: f["value"] for f in extras})
+    st.caption(f"Analyzed by {result.get('_model', 'AI')}. Review before relying on it.")
 
 
 def _ai_summary(key: str) -> str:
@@ -177,7 +193,9 @@ def upload_and_parse(parse_fn, key: str) -> dict:
     )
     if not uploaded:
         return {}
-    return _process_documents([(f.name, f.getvalue()) for f in uploaded], parse_fn, key)
+    return _process_documents(
+        [(f.name, f.getvalue(), getattr(f, "type", "")) for f in uploaded], parse_fn, key
+    )
 
 
 def _from_google_drive(parse_fn, key: str) -> dict:
@@ -211,11 +229,11 @@ def _from_google_drive(parse_fn, key: str) -> dict:
     if not st.button(f"📥 Load & parse {len(chosen)} file(s)", key=f"gd_load_{key}"):
         return {}
 
-    docs: list[tuple[str, bytes]] = []
+    docs: list[tuple[str, bytes, str]] = []
     with st.spinner(f"Downloading {len(chosen)} file(s) from Google Drive…"):
         for f in chosen:
             try:
-                docs.append((f["name"], gdrive.download_file(f["id"])))
+                docs.append((f["name"], gdrive.download_file(f["id"]), f.get("mimeType", "")))
             except Exception as exc:
                 st.error(f"Download failed for {f['name']}: {exc}")
 
