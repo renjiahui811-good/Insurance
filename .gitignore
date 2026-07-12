@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Client personal data (PDPA) — keep everything except template + README
+clients/*
+!clients/_template_client.md
+!clients/README.md
+
+# Local working data
+data/*
+!data/.gitkeep
+
+# OS
+.DS_Store
