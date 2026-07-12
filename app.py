@@ -17,6 +17,7 @@ from pathlib import Path
 
 import streamlit as st
 
+import ai
 import gdrive
 import parsers
 import records as rec
@@ -83,7 +84,59 @@ def _process_documents(docs: list[tuple[str, bytes]], parse_fn, key: str) -> dic
         st.json(found)
 
     st.session_state[f"parsed_{key}"] = parsed
+    st.session_state[f"text_{key}"] = combined
     return parsed
+
+
+def render_ai_section(key: str, region: str) -> None:
+    """Offer Claude-powered full-policy analysis on the extracted text."""
+    text = st.session_state.get(f"text_{key}")
+    if not text:
+        return
+
+    st.markdown("---")
+    if not ai.is_configured():
+        with st.expander("🤖 Want an AI summary of the whole policy? (setup)"):
+            st.markdown(
+                "AI analysis is not configured yet. Add an `anthropic_api_key` to "
+                "Streamlit **Secrets** to let Claude read the full policy and summarise "
+                "coverage, exclusions and gaps. See `AI_SETUP.md` in the repo."
+            )
+        return
+
+    st.subheader("C. AI Analysis (Claude)")
+    if st.button("🤖 Analyze full policy with AI", key=f"ai_btn_{key}"):
+        with st.spinner("Claude is reading the policy…"):
+            try:
+                st.session_state[f"ai_result_{key}"] = ai.analyze(text, region)
+            except Exception as exc:  # surface auth/rate-limit/etc. to the user
+                st.error(f"AI analysis failed: {exc}")
+
+    result = st.session_state.get(f"ai_result_{key}")
+    if not result:
+        return
+
+    st.markdown(result.get("summary", ""))
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("**✅ Coverage highlights**")
+        for item in result.get("coverage_highlights", []):
+            st.markdown(f"- {item}")
+    with col2:
+        st.markdown("**⚠️ Exclusions / gaps to review**")
+        for item in result.get("exclusions_or_gaps", []):
+            st.markdown(f"- {item}")
+
+    fields = result.get("fields", [])
+    if fields:
+        with st.expander("Extracted fields"):
+            st.table({f["label"]: f["value"] for f in fields})
+    st.caption(f"Analyzed by {result.get('_model', 'Claude')}. Review before relying on it.")
+
+
+def _ai_summary(key: str) -> str:
+    return st.session_state.get(f"ai_result_{key}", {}).get("summary", "")
 
 
 def upload_and_parse(parse_fn, key: str) -> dict:
@@ -92,6 +145,7 @@ def upload_and_parse(parse_fn, key: str) -> dict:
     caps.append("PDF ✅" if parsers.CAPABILITIES["pdf"] else "PDF ❌")
     caps.append("Image OCR ✅" if parsers.CAPABILITIES["ocr"] else "Image OCR ❌")
     caps.append("Google Drive ✅" if gdrive.is_configured() else "Google Drive ❌")
+    caps.append("AI ✅" if ai.is_configured() else "AI ❌")
     st.caption("Parser capabilities: " + " · ".join(caps))
 
     sources = ["💻 Upload from device"]
@@ -187,6 +241,7 @@ def page_my_policies() -> None:
     with tab_add:
         st.subheader("A. Upload & Auto-Parse")
         upload_and_parse(parsers.parse_sg_fields, key="sg")
+        render_ai_section("sg", "sg")
 
         st.subheader("B. Policy Form")
         with st.form("sg_form"):
@@ -238,7 +293,7 @@ def page_my_policies() -> None:
             with c8:
                 maturity_date = st.text_input("Maturity Date")
 
-            notes = st.text_area("Notes")
+            notes = st.text_area("Notes", value=_ai_summary("sg"))
             submitted = st.form_submit_button("💾 Save Policy")
 
         if submitted:
@@ -273,6 +328,7 @@ def page_parents_policies() -> None:
     with tab_add:
         st.subheader("方式 A：上传并自动解析 (Upload & Auto-Parse)")
         upload_and_parse(parsers.parse_cn_fields, key="cn")
+        render_ai_section("cn", "cn")
 
         st.subheader("方式 B：保单表单 (Policy Form)")
         with st.form("cn_form"):
@@ -320,7 +376,7 @@ def page_parents_policies() -> None:
             with c8:
                 end_date = st.text_input("保险期间止 End Date")
 
-            notes = st.text_area("备注 Notes")
+            notes = st.text_area("备注 Notes", value=_ai_summary("cn"))
             submitted = st.form_submit_button("💾 保存保单 Save")
 
         if submitted:

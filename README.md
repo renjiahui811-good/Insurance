@@ -32,6 +32,10 @@ On both policy pages you can add a record two ways:
   China uses Chinese patterns (`eng+chi_sim` OCR).
 - **B. Policy Form** — review/adjust anything parsing missed, then save. The
   record is written as a Markdown file (English for SG, Chinese fields for CN).
+- **C. AI Analysis (Claude)** — optional. Claude reads the *full* policy text and
+  returns a plain-language summary, coverage highlights, and exclusions/gaps.
+  The summary pre-fills the Notes field. Configure with an Anthropic API key —
+  see `AI_SETUP.md`. Without it, A and B still work.
 
 ## Structure
 
